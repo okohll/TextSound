@@ -21,8 +21,13 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+
 import org.jfugue.MicrotoneNotation;
 import org.jfugue.Player;
 
@@ -39,17 +44,64 @@ import org.jfugue.Player;
 public class TextSound {
 
 	static String instrument = "PIANO";
-	
-	//TODO: could use these to change and revert - opening bracket changes, closing changes the same setting in the opposite direction
+
+	static List<String> orderings = new ArrayList<String>();
+
+	// Starting settings
+	// NB: If any values are set to exactly zero, they will be unable to
+	// change throughout the generation
+	//
+	// How long to hold each note for
+	static double noteLength = 1; // /1 = whole note (semibreve). /0.25 =
+									// crotchet
+
+	// How long to wait before playing the next note
+	static double noteGap = 0.0001; // 1 / 32d; // 1/32 = good default, 0 = no
+
+	// gap (chords)
+	// How long to pause when a rest (space etc.) is encountered
+	static double restLength = 1 / 8d; // 1/8 = good default
+
+	// Lowest note that can be played
+	static double baseFrequency = 128; // 128 Hz = Octave below middle C
+
+	// Octave range in which to place notes
+	static double octaves = 2;
+
+	// Tempo in beats per second
+	static double tempo = 100;
+
+	// Which letter ordering (defined above) to use, zero indexed
+	static int ordering = 1;
+
+	// Initial setting type
+	static Setting setting = Setting.TEMPO;
+
+	static EnumSet<Setting> allSettings = EnumSet.allOf(Setting.class);
+
+	// Characters which prompt a change of setting type
+	static String settingChangers = ".";
+
+	// Even characters increase setting values, odd characters decrease.
+	// This swaps that behaviour
+	static boolean tempoDirection = false;
+
+	// TODO: could use these to change and revert - opening bracket changes,
+	// closing changes the same setting in the opposite direction
 	static String containers = "(){}[]<>\"\"";
 
+	// Print out each paragraph as we play (causes a pause each time)
+	static boolean follow = false;
+	
+	static Set<String> passingWords = new HashSet<String>(Arrays.asList("THE","A","AND","OR","NOT","WITH","THIS","IN","INTO","IS","THAT","THEN","OF","BUT","BY","DID","TO","IT","ALL"));
+
 	enum Setting {
-		NOTE_LENGTH(0, 2), NOTE_GAP(0, 2), REST_LENGTH(0, 2), BASE_FREQUENCY(32, 2048), OCTAVES(1,
-				5), TEMPO(1, 1000);
+		NOTE_LENGTH(0.01, 8.0), ARPEGGIATE_GAP(0.001, 0.5), REST_LENGTH(0.01, 0.5), BASE_FREQUENCY(16.0, 2048), OCTAVES(
+				1.0, 5.0), TEMPO(100, 1000), LETTER_ORDERING(0.0,3.0);
 		Setting(double min, double max) {
 			if (min == 0) {
-				// Don't allow absolute zero as a min otherwise will never recover,
-				// i.e. it won't be able to be changed by multiplication
+				// Don't allow absolute zero as a min otherwise will never
+				// recover, i.e. it won't be able to be changed by multiplication
 				this.min = 0.0001;
 			} else {
 				this.min = min;
@@ -59,56 +111,91 @@ public class TextSound {
 
 		public double keepInRange(double value) {
 			if (value < this.min) {
-				return this.min;
+				this.directionRollingAverage = (this.directionRollingAverage - 1d) / 2d;
+				if (this.directionRollingAverage < -0.8) {
+					System.out.println(this.toString() + " too low at " + value + ", swapping direction. RA = " + this.directionRollingAverage);
+					this.direction = !this.direction;
+				}
+				double returnValue = this.min + (this.min - value);
+				if (returnValue > this.min && returnValue < this.max) {
+					return returnValue;
+				} else {
+					System.out.println("" + this + " return value " + returnValue + " out of range, instead " + ((returnValue % (this.max - this.min)) + this.min));
+					return (Math.abs(returnValue) % (this.max - this.min)) + this.min;
+				}
 			} else if (value > this.max) {
-				return this.max;
+				this.directionRollingAverage = (this.directionRollingAverage + 1d) / 2d;
+				if (this.directionRollingAverage > 0.8) {
+					System.out.println(this.toString() + " too high at " + value + ", swapping direction. RA = " + this.directionRollingAverage);
+					this.direction = !this.direction;
+				}
+				double returnValue = this.max - (value - this.max);
+				if (returnValue > this.min && returnValue < this.max) {
+					return returnValue;
+				} else {
+					System.out.println("" + this + " return value " + returnValue + " out of range, instead " + ((returnValue % (this.max - this.min)) + this.min));
+					return (Math.abs(returnValue) % (this.max - this.min)) + this.min;
+				}
 			} else {
+				System.out.println("" + this + " now " + value);
 				return value;
 			}
+		}
+		
+		public boolean getDirection() {
+			return this.direction;
 		}
 
 		private double min;
 
 		private double max;
+		
+		private boolean direction = true;
+		
+		private double directionRollingAverage = 0d;
+		
 	}
 
 	public static void main(String[] args) throws Exception {
 
+		// Each ordering gives a different character
+		// Alphabetic
+		orderings.add("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+		// Increasing order of scrabble scores
+		//orderings.add("AEILNORSTUDGBCMPFHVWYKJXQZ");
+		// Decreasing frequency of use in English
+		orderings.add("ETAONRISHDLFCMUGYPWBVKXJQZ");
 		// Default for testing purposes
 		String inFilename = "/Users/oliver/Downloads/textSound.txt";
 		if (args.length > 0) {
 			inFilename = args[0];
 		}
 		String outFilename = inFilename + ".mid";
-		
-		// Starting settings
-		// NB: If any values are set to exactly zero, they will be unable to change throughout the generation
-		//
-		// How long to hold each note for
-		double noteLength = 2; // /1 = whole note (semibreve). /0.25 = crotchet
-		// How long to wait before playing the next note
-		double noteGap = 0.0001; // 1 / 32d; // 1/32 = good default, 0 = no
-							// gap (chords)
-		// How long to pause when a rest (space etc.) is encountered
-		double restLength = 1/8d; // 1/8 = good default
-		// Lowest note that can be played
-		double baseFrequency = 64; // 128 Hz = Octave below middle C
-		// Octave range in which to place notes
-		double octaves = 3;
-		// Tempo in beats per second
-		double tempo = 100;
-		// Initial setting type
-		Setting setting = Setting.TEMPO;
-		EnumSet<Setting> allSettings = EnumSet.allOf(Setting.class);
-		// Characters which prompt a change of setting type
-		String settingChangers = ".";
 
 		List<String> lines = Files.readAllLines(FileSystems.getDefault().getPath(inFilename),
 				StandardCharsets.UTF_8);
 		StringBuilder inBuilder = new StringBuilder();
+		Player player = new Player();
+		player.play("T" + (int) tempo + " I[" + instrument + "] ");
+		String paraSoundString = "";
+		String para = "";
+		int lineCount = 0;
 		for (String line : lines) {
-			inBuilder.append(line);
+			lineCount++;
+			String theLine = line.replace("\r", "\n") + "\n";
+			inBuilder.append(theLine);
+			if (follow) {
+				paraSoundString += processString(theLine);
+				para += theLine;
+				if (theLine.length() < 2) {
+					System.out.println(para);
+					player.play("T" + (int) tempo + " " + paraSoundString);
+					paraSoundString = "";
+					para = "";
+				}
+			}
 		}
+		System.out.println();
 		String input = inBuilder.toString();
 		// input = "It was the best of times, it was the worst of times";
 		// input =
@@ -127,38 +214,54 @@ public class TextSound {
 		// "Effective content marketing holds peopleÕs attention. It gives you a distinctive brand, loyal fans and increased sales. You donÕt need a big budget to succeed, which is why good content marketing is the single best way to beat bigger competitors online";
 		// input =
 		// "The municipality was created on 14 March 1997, succeeding the sub-provincial city administration that was part of Sichuan Province";
-		StringBuilder soundString = new StringBuilder("T" + (int) tempo + " I[" + instrument + "] ");
+		if (!follow) {
+			String ss = "T" + (int) tempo + " I[" + instrument + "] " + processString(input);
+			System.out.println(input);
+			player = new Player();
+			File file = new File(outFilename);
+			player.saveMidi(ss, file);
+			player.play(ss);
+		}
+	}
+
+	/**
+	 * Turn the input string into a sound string that can be played by jFugue
+	 */
+	private static String processString(String input) {
+		StringBuilder soundString = new StringBuilder();
 		// For debugging / printout purposes
 		StringBuilder lastSentence = new StringBuilder();
+		// To allow word properties to influence sound
+		StringBuilder lastWord = new StringBuilder();
 		for (int charIndex = 0; charIndex < input.length(); charIndex++) {
 			char ch = input.charAt(charIndex);
+			char upperCh = Character.toUpperCase(ch);
 			lastSentence.append(ch);
 			String charString = String.valueOf(ch);
 			// A = 1, B = 2, ...
-			int charNum = Character.getNumericValue(Character.toUpperCase(ch)) - 9;
-
+			int charNum = orderings.get(ordering).indexOf(upperCh) + 1;
+			// int charNum = Character.getNumericValue(upperCh) - 9;
 			if ((Character.isWhitespace(ch)) || (charNum < 1)) {
-				soundString.append("R/" + restLength + " ");
+				double theRestLength = restLength;
+				if (passingWords.contains(lastWord.toString())) {
+					theRestLength = restLength * (2d/3d);
+				}
+				lastWord.setLength(0);
+				soundString.append("R/" + String.format("%f", theRestLength) + " ");
 				if (charString.equals("\n")) {
 					// An extra rest on newlines
-					soundString.append("R/" + restLength + " ");					
+					soundString.append("R/" + String.format("%f", restLength) + " ");
 				}
 				if (settingChangers.contains(charString)) {
-					int newSettingNum = setting.ordinal() + 1;
-					if (newSettingNum >= allSettings.size()) {
-						newSettingNum = 0;
-					}
-					for (Setting testSetting : allSettings) {
-						if (testSetting.ordinal() == newSettingNum) {
-							setting = testSetting;
-						}
-					}
+					changeSetting();
 				} else if (!Character.isWhitespace(ch)) {
 					int ascii = (int) ch;
 					boolean increase = (ascii % 2 == 0);
-					System.out.println(lastSentence);
+					// Stop things getting too slow - see switch statement below
+					if (!setting.getDirection()) {
+						increase = !increase;
+					}
 					lastSentence.setLength(0);
-					System.out.print("       " + ch + "(" + ascii + "): " + increase + ". ");
 					// Factor can be in the range 0.5..2: can half or double the
 					// existing value at the most
 					double factor = 1 + (ascii / 127d);
@@ -168,34 +271,51 @@ public class TextSound {
 					switch (setting) {
 					case NOTE_LENGTH:
 						noteLength = setting.keepInRange(noteLength * factor);
-						System.out.println("Note length changed to " + String.format("%f",noteLength));
 						break;
-					case NOTE_GAP:
+					case ARPEGGIATE_GAP:
+						double oldNoteGap = noteGap;
 						noteGap = setting.keepInRange(noteGap * factor);
-						System.out.println("Note gap changed to " + String.format("%f",noteGap));
+						// Stop things getting too slow if we're staying on the
+						// slowest. Start to speed up again
+						/*
+						 * if ((oldNoteGap == noteGap) && (noteGap ==
+						 * setting.keepInRange(99999d))) { noteGap =
+						 * setting.keepInRange(0d); System.out .println(
+						 * "Reached largest note gap, reversing direction of travel. Gap = "
+						 * + noteGap); //directionOfTravel = !directionOfTravel;
+						 * 
+						 * }
+						 */
 						break;
 					case REST_LENGTH:
 						restLength = setting.keepInRange(restLength * factor);
-						System.out.println("Rest length changed to " + String.format("%f",restLength));
 						break;
 					case BASE_FREQUENCY:
 						baseFrequency = setting.keepInRange(baseFrequency * factor);
-						System.out.println("Base frequency changed to " + baseFrequency);
 						break;
 					case OCTAVES:
 						octaves = setting.keepInRange(octaves * factor);
-						System.out.println("Octaves changed to " + octaves);
 						break;
 					case TEMPO:
+						double oldTempo = tempo;
 						tempo = setting.keepInRange(tempo * factor);
-						System.out.println("Tempo changed to " + tempo);
 						soundString.append("T" + (int) tempo + " ");
+						break;
+					case LETTER_ORDERING:
+						ordering += 1;
+						if (ordering > (orderings.size() - 1)) {
+							ordering = 0;
+						}
+						System.out.println("Changing letter ordering to " + orderings.get(ordering));
+						// Only change letter ordering once, then move on to something else
+						changeSetting();
 						break;
 					default:
 						throw new IllegalStateException("Setting " + setting + " is not handled");
 					}
 				}
 			} else {
+				lastWord.append(upperCh);
 				// The core of it: turn letters into frequencies
 				double frequency = charNum * baseFrequency;
 				// Normalise to fit in the range
@@ -206,23 +326,38 @@ public class TextSound {
 				while (frequency > topFrequency) {
 					frequency = frequency / 2;
 				}
-				//System.out.println("Frequency for " + ch + "=" + charNum + " normalized to octave "
-				//		+ octaves + ", top frequency " + topFrequency + ": " + frequency);
+				// System.out.println("Frequency for " + ch + "=" + charNum +
+				// " normalized to octave "
+				// + octaves + ", top frequency " + topFrequency + ": " +
+				// frequency);
 				soundString.append(MicrotoneNotation.convertFrequencyToMusicString(frequency));
 				if (Character.isUpperCase(ch)) {
-					soundString.append("/" + String.format("%f",noteLength * 2));
+					soundString.append("/" + String.format("%f", noteLength * 4));
 				} else {
-					soundString.append("/" + String.format("%f",noteLength));
+					soundString.append("/" + String.format("%f", noteLength));
 				}
-				soundString.append("+R/" + String.format("%f",noteGap) + " ");
+				double theNoteGap = noteGap;
+				if (theNoteGap > 0.2) {
+					theNoteGap  = theNoteGap / lastWord.length();
+				} else if ((theNoteGap > 0.1) && passingWords.contains(lastWord.toString())) {
+					theNoteGap = theNoteGap * 0.5;
+				}
+				soundString.append("+R/" + String.format("%f", theNoteGap) + " ");
 			}
 		}
-		System.out.println(soundString);
-		Player player = new Player();
-		File file = new File(outFilename);
-		String ss = soundString.toString();
-		player.saveMidi(ss, file);
-		player.play(ss);
+		return soundString.toString();
+	}
+
+	private static void changeSetting() {
+		int newSettingNum = setting.ordinal() + 1;
+		if (newSettingNum >= allSettings.size()) {
+			newSettingNum = 0;
+		}
+		for (Setting testSetting : allSettings) {
+			if (testSetting.ordinal() == newSettingNum) {
+				setting = testSetting;
+			}
+		}
 	}
 
 }
