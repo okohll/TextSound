@@ -315,12 +315,13 @@ public class TextSound {
 					}
 				}
 			} else {
-				lastWord.append(upperCh);
 				// The core of it: turn letters into frequencies
+				lastWord.append(upperCh);
+				double targetOctave = Math.ceil((charNum / 26d) * octaves);
 				double frequency = charNum * baseFrequency;
 				// Normalise to fit in the range
 				double topFrequency = baseFrequency;
-				for (int j = 0; j < octaves; j++) {
+				for (int j = 0; j < targetOctave; j++) {
 					topFrequency = topFrequency * 2;
 				}
 				while (frequency > topFrequency) {
