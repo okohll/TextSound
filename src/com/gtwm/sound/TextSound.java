@@ -45,7 +45,7 @@ public class TextSound {
 
 	static String instrument = "PIANO";
 
-	static List<String> orderings = new ArrayList<String>();
+	static List<String> orderings = new ArrayList<String>(Arrays.asList("ETAONRISHDLFCMUGYPWBVKXJQZ","ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
 
 	// Starting settings
 	// NB: If any values are set to exactly zero, they will be unable to
@@ -60,7 +60,7 @@ public class TextSound {
 
 	// gap (chords)
 	// How long to pause when a rest (space etc.) is encountered
-	static double restLength = 1 / 8d; // 1/8 = good default
+	static double restLength = 1 / 10d; // 1/8 = good default
 
 	// Lowest note that can be played
 	static double baseFrequency = 128; // 128 Hz = Octave below middle C
@@ -68,11 +68,11 @@ public class TextSound {
 	// Octave range in which to place notes
 	static double octaves = 2;
 
-	// Tempo in beats per second
+	// Tempo in beats per minute
 	static double tempo = 100;
 
 	// Which letter ordering (defined above) to use, zero indexed
-	static int ordering = 1;
+	static int ordering = 0;
 
 	// Initial setting type
 	static Setting setting = Setting.TEMPO;
@@ -90,18 +90,34 @@ public class TextSound {
 	// closing changes the same setting in the opposite direction
 	static String containers = "(){}[]<>\"\"";
 
+	// Will cycle.
+	// 0 = increase attack, 1 = decrease attack, 2 = increase decay, 3 =
+	// decrease decay
+	static int attackDecayAction = 0;
+
+	static double attack = 64;
+
+	static double decay = 64;
+
+	// Affects how quickly attack and decay values change. Higher value = slower
+	// change
+	static double attackDecayDamper = 8d;
+
 	// Print out each paragraph as we play (causes a pause each time)
 	static boolean follow = false;
-	
-	static Set<String> passingWords = new HashSet<String>(Arrays.asList("THE","A","AND","OR","NOT","WITH","THIS","IN","INTO","IS","THAT","THEN","OF","BUT","BY","DID","TO","IT","ALL"));
+
+	static Set<String> passingWords = new HashSet<String>(Arrays.asList("THE", "A", "AND", "OR",
+			"NOT", "WITH", "THIS", "IN", "INTO", "IS", "THAT", "THEN", "OF", "BUT", "BY", "DID",
+			"TO", "IT", "ALL", "WAS", "WENT", "ARE", "WERE"));
 
 	enum Setting {
-		NOTE_LENGTH(0.01, 8.0), ARPEGGIATE_GAP(0.001, 0.5), REST_LENGTH(0.01, 0.5), BASE_FREQUENCY(16.0, 2048), OCTAVES(
-				1.0, 5.0), TEMPO(100, 1000), LETTER_ORDERING(0.0,3.0);
+		NOTE_LENGTH(0.01, 8.0), ARPEGGIATE_GAP(0.001, 0.5), REST_LENGTH(0.01, 0.5), BASE_FREQUENCY(
+				16.0, 2048), OCTAVES(1.0, 5.0), TEMPO(100, 1000), LETTER_ORDERING(0.0, 0.0);
 		Setting(double min, double max) {
 			if (min == 0) {
 				// Don't allow absolute zero as a min otherwise will never
-				// recover, i.e. it won't be able to be changed by multiplication
+				// recover, i.e. it won't be able to be changed by
+				// multiplication
 				this.min = 0.0001;
 			} else {
 				this.min = min;
@@ -113,35 +129,40 @@ public class TextSound {
 			if (value < this.min) {
 				this.directionRollingAverage = (this.directionRollingAverage - 1d) / 2d;
 				if (this.directionRollingAverage < -0.8) {
-					System.out.println(this.toString() + " too low at " + value + ", swapping direction. RA = " + this.directionRollingAverage);
+					System.out.println(this.toString() + " too low at " + value
+							+ ", swapping direction. RA = " + this.directionRollingAverage);
 					this.direction = !this.direction;
 				}
 				double returnValue = this.min + (this.min - value);
 				if (returnValue > this.min && returnValue < this.max) {
 					return returnValue;
 				} else {
-					System.out.println("" + this + " return value " + returnValue + " out of range, instead " + ((returnValue % (this.max - this.min)) + this.min));
+					System.out.println("" + this + " return value " + returnValue
+							+ " out of range, instead "
+							+ ((returnValue % (this.max - this.min)) + this.min));
 					return (Math.abs(returnValue) % (this.max - this.min)) + this.min;
 				}
 			} else if (value > this.max) {
 				this.directionRollingAverage = (this.directionRollingAverage + 1d) / 2d;
 				if (this.directionRollingAverage > 0.8) {
-					System.out.println(this.toString() + " too high at " + value + ", swapping direction. RA = " + this.directionRollingAverage);
+					System.out.println(this.toString() + " too high at " + value
+							+ ", swapping direction. RA = " + this.directionRollingAverage);
 					this.direction = !this.direction;
 				}
 				double returnValue = this.max - (value - this.max);
 				if (returnValue > this.min && returnValue < this.max) {
 					return returnValue;
 				} else {
-					System.out.println("" + this + " return value " + returnValue + " out of range, instead " + ((returnValue % (this.max - this.min)) + this.min));
+					System.out.println("" + this + " return value " + returnValue
+							+ " out of range, instead "
+							+ ((returnValue % (this.max - this.min)) + this.min));
 					return (Math.abs(returnValue) % (this.max - this.min)) + this.min;
 				}
 			} else {
-				System.out.println("" + this + " now " + value);
 				return value;
 			}
 		}
-		
+
 		public boolean getDirection() {
 			return this.direction;
 		}
@@ -149,26 +170,25 @@ public class TextSound {
 		private double min;
 
 		private double max;
-		
+
 		private boolean direction = true;
-		
+
 		private double directionRollingAverage = 0d;
-		
+
 	}
 
 	public static void main(String[] args) throws Exception {
 
-		// Each ordering gives a different character
-		// Alphabetic
-		orderings.add("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
-		// Increasing order of scrabble scores
-		//orderings.add("AEILNORSTUDGBCMPFHVWYKJXQZ");
-		// Decreasing frequency of use in English
-		orderings.add("ETAONRISHDLFCMUGYPWBVKXJQZ");
 		// Default for testing purposes
 		String inFilename = "/Users/oliver/Downloads/textSound.txt";
 		if (args.length > 0) {
 			inFilename = args[0];
+			if (args.length > 1) {
+				String followString = args[1];
+				if (followString.toLowerCase().equals("follow")) {
+					follow = true;
+				}
+			}
 		}
 		String outFilename = inFilename + ".mid";
 
@@ -195,26 +215,13 @@ public class TextSound {
 				}
 			}
 		}
-		System.out.println();
-		String input = inBuilder.toString();
-		// input = "It was the best of times, it was the worst of times";
-		// input =
-		// "It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity, it was the season of Light, it was the season of Darkness, it was the spring of hope, it was the winter of despair, we had everything before us, we had nothing before us, we were all going direct to heaven, we were all going direct the other way - in short, the period was so far like the present period, that some of its noisiest authorities insisted on its being received, for good or for evil, in the superlative degree of comparison only.";
-		// input =
-		// "The quality of implementation specifications concern two properties, accuracy of the returned result and monotonicity of the method";
-		// input =
-		// "In certain service environments, particularly those where the business environment is dynamic and where clients interact with the organisation on a regular basis, we have found a grasp of Systems Thinking is invaluable.";
-		// input =
-		// "The Sixth Crusade started in 1228 as an attempt to regain Jerusalem";
-		// input =
-		// "Although Baden-Württemberg is lacking natural resources,[2] the state is among the most prosperous states in Germany";
-		// input =
-		// "If you want to print this guide, it is recommended that you print in Landscape mode";
-		// input =
-		// "Effective content marketing holds people’s attention. It gives you a distinctive brand, loyal fans and increased sales. You don’t need a big budget to succeed, which is why good content marketing is the single best way to beat bigger competitors online";
-		// input =
-		// "The municipality was created on 14 March 1997, succeeding the sub-provincial city administration that was part of Sichuan Province";
-		if (!follow) {
+		if (follow) {
+			// The last para
+			System.out.println(para);
+			player.play("T" + (int) tempo + " " + paraSoundString);
+		} else {
+			System.out.println();
+			String input = inBuilder.toString();
 			String ss = "T" + (int) tempo + " I[" + instrument + "] " + processString(input);
 			System.out.println(input);
 			player = new Player();
@@ -240,11 +247,10 @@ public class TextSound {
 			String charString = String.valueOf(ch);
 			// A = 1, B = 2, ...
 			int charNum = orderings.get(ordering).indexOf(upperCh) + 1;
-			// int charNum = Character.getNumericValue(upperCh) - 9;
 			if ((Character.isWhitespace(ch)) || (charNum < 1)) {
 				double theRestLength = restLength;
 				if (passingWords.contains(lastWord.toString())) {
-					theRestLength = restLength * (2d/3d);
+					theRestLength = restLength * (2d / 3d);
 				}
 				lastWord.setLength(0);
 				soundString.append("R/" + String.format("%f", theRestLength) + " ");
@@ -257,13 +263,15 @@ public class TextSound {
 				} else if (!Character.isWhitespace(ch)) {
 					int ascii = (int) ch;
 					boolean increase = (ascii % 2 == 0);
-					// Stop things getting too slow - see switch statement below
+					// Stop things getting too extreme for too long
 					if (!setting.getDirection()) {
 						increase = !increase;
 					}
 					lastSentence.setLength(0);
-					// Factor can be in the range 0.5..2: can half or double the
-					// existing value at the most
+					// Factor can be in the range 0.5..2: ASCII characters can
+					// half or double the
+					// existing value at the most. Other rarer characters can
+					// have more of an effect
 					double factor = 1 + (ascii / 127d);
 					if (!increase) {
 						factor = 1 / factor;
@@ -275,17 +283,6 @@ public class TextSound {
 					case ARPEGGIATE_GAP:
 						double oldNoteGap = noteGap;
 						noteGap = setting.keepInRange(noteGap * factor);
-						// Stop things getting too slow if we're staying on the
-						// slowest. Start to speed up again
-						/*
-						 * if ((oldNoteGap == noteGap) && (noteGap ==
-						 * setting.keepInRange(99999d))) { noteGap =
-						 * setting.keepInRange(0d); System.out .println(
-						 * "Reached largest note gap, reversing direction of travel. Gap = "
-						 * + noteGap); //directionOfTravel = !directionOfTravel;
-						 * 
-						 * }
-						 */
 						break;
 					case REST_LENGTH:
 						restLength = setting.keepInRange(restLength * factor);
@@ -306,8 +303,8 @@ public class TextSound {
 						if (ordering > (orderings.size() - 1)) {
 							ordering = 0;
 						}
-						System.out.println("Changing letter ordering to " + orderings.get(ordering));
-						// Only change letter ordering once, then move on to something else
+						// Only change letter ordering once, then move on to
+						// something else
 						changeSetting();
 						break;
 					default:
@@ -316,6 +313,7 @@ public class TextSound {
 				}
 			} else {
 				// The core of it: turn letters into frequencies
+				changeAttackDecay(charNum);
 				lastWord.append(upperCh);
 				double targetOctave = Math.ceil((charNum / 26d) * octaves);
 				double frequency = charNum * baseFrequency;
@@ -327,19 +325,16 @@ public class TextSound {
 				while (frequency > topFrequency) {
 					frequency = frequency / 2;
 				}
-				// System.out.println("Frequency for " + ch + "=" + charNum +
-				// " normalized to octave "
-				// + octaves + ", top frequency " + topFrequency + ": " +
-				// frequency);
 				soundString.append(MicrotoneNotation.convertFrequencyToMusicString(frequency));
 				if (Character.isUpperCase(ch)) {
 					soundString.append("/" + String.format("%f", noteLength * 4));
 				} else {
 					soundString.append("/" + String.format("%f", noteLength));
 				}
+				soundString.append("A" + (int) attack + "D" + (int) decay);
 				double theNoteGap = noteGap;
 				if (theNoteGap > 0.2) {
-					theNoteGap  = theNoteGap / lastWord.length();
+					theNoteGap = theNoteGap / lastWord.length();
 				} else if ((theNoteGap > 0.1) && passingWords.contains(lastWord.toString())) {
 					theNoteGap = theNoteGap * 0.5;
 				}
@@ -358,6 +353,40 @@ public class TextSound {
 			if (testSetting.ordinal() == newSettingNum) {
 				setting = testSetting;
 			}
+		}
+	}
+
+	private static void changeAttackDecay(int charNum) {
+		double changeAmount = (double) charNum / attackDecayDamper;
+		attackDecayAction++;
+		if (attackDecayAction > 3) {
+			attackDecayAction = 0;
+		}
+		switch (attackDecayAction) {
+		case 0:
+			attack += changeAmount;
+			break;
+		case 1:
+			attack -= changeAmount;
+			break;
+		case 2:
+			decay += changeAmount;
+			break;
+		case 3:
+			decay -= changeAmount;
+			break;
+		}
+		if (attack > 127) {
+			attack = 127 - (attack - 127);
+		}
+		if (attack < 20) {
+			attack = 20 + (20 - attack);
+		}
+		if (decay > 127) {
+			decay = 127 - (decay - 127);
+		}
+		if (decay < 20) {
+			decay = 20 + (20 - decay);
 		}
 	}
 

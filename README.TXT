@@ -20,6 +20,19 @@ Output should be completely deterministic, i.e. there should be no randomness - 
 
 java -jar textsound.jar myfile.txt
 
+This will create a MIDI file myfile.txt.mid and play it
+
+An optional last argument 'follow' can be used to print out each paragraph as it's played, with gaps inbetween each.
+Paragraphs are recognised by two linebreaks.
+
+e.g. 
+
+java -jar textsound.jar myfile.txt follow
+
 === Requirements ===
 
 Java 7
+
+=== Credits ===
+
+The jfugue.org library is used to generate and play the MIDI output
