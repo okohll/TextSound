@@ -2,8 +2,7 @@ Turn a stream of text into sound, using the overtone series
 
 Letter A = root note
 B = first overtone, double the frequency, one octave above
-C = triple
-the frequency, an octave plus a fifth above the root
+C = triple the frequency, an octave plus a fifth above the root
 D = x4 frequency, two octaves up
 E = x5, two octaves plus a third etc.
 

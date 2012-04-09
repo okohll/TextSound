@@ -27,7 +27,6 @@ import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-
 import org.jfugue.MicrotoneNotation;
 import org.jfugue.Player;
 
@@ -45,7 +44,9 @@ public class TextSound {
 
 	static String instrument = "PIANO";
 
-	static List<String> orderings = new ArrayList<String>(Arrays.asList("ETAONRISHDLFCMUGYPWBVKXJQZ","ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
+	// ETA... = decreasing frequency of occurence in English
+	static List<String> orderings = new ArrayList<String>(Arrays.asList(
+			"ETAONRISHDLFCMUGYPWBVKXJQZ", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"));
 
 	// Starting settings
 	// NB: If any values are set to exactly zero, they will be unable to
@@ -90,9 +91,6 @@ public class TextSound {
 	// closing changes the same setting in the opposite direction
 	static String containers = "(){}[]<>\"\"";
 
-	// Will cycle.
-	// 0 = increase attack, 1 = decrease attack, 2 = increase decay, 3 =
-	// decrease decay
 	static int attackDecayAction = 0;
 
 	static double attack = 64;
@@ -101,10 +99,15 @@ public class TextSound {
 
 	// Affects how quickly attack and decay values change. Higher value = slower
 	// change
+	static double attackDecayBase = 10d;
+
 	static double attackDecayDamper = 8d;
 
 	// Print out each paragraph as we play (causes a pause each time)
 	static boolean follow = false;
+
+	// Twelfth root of two
+	static double semitoneRatio = Math.pow(2, 1d / 12);
 
 	static Set<String> passingWords = new HashSet<String>(Arrays.asList("THE", "A", "AND", "OR",
 			"NOT", "WITH", "THIS", "IN", "INTO", "IS", "THAT", "THEN", "OF", "BUT", "BY", "DID",
@@ -208,6 +211,7 @@ public class TextSound {
 				paraSoundString += processString(theLine);
 				para += theLine;
 				if (theLine.length() < 2) {
+					System.out.println("Attack " + (int) attack + ", decay " + (int) decay);
 					System.out.println(para);
 					player.play("T" + (int) tempo + " " + paraSoundString);
 					paraSoundString = "";
@@ -240,6 +244,7 @@ public class TextSound {
 		StringBuilder lastSentence = new StringBuilder();
 		// To allow word properties to influence sound
 		StringBuilder lastWord = new StringBuilder();
+		Character lastChar = null;
 		for (int charIndex = 0; charIndex < input.length(); charIndex++) {
 			char ch = input.charAt(charIndex);
 			char upperCh = Character.toUpperCase(ch);
@@ -252,12 +257,25 @@ public class TextSound {
 				if (passingWords.contains(lastWord.toString())) {
 					theRestLength = restLength * (2d / 3d);
 				}
-				lastWord.setLength(0);
 				soundString.append("R/" + String.format("%f", theRestLength) + " ");
 				if (charString.equals("\n")) {
 					// An extra rest on newlines
 					soundString.append("R/" + String.format("%f", restLength) + " ");
 				}
+				if (lastChar.equals(ch) && (!setting.equals(Setting.BASE_FREQUENCY))) {
+					int ascii = (int) lastChar.charValue();
+					double factor = semitoneRatio;
+					boolean increase = (lastWord.hashCode() % 2 == 0);
+					if (!Setting.BASE_FREQUENCY.getDirection()) {
+						increase = !increase;
+					}
+					if (!increase) {
+						factor = 1 / factor;
+					}
+					baseFrequency = Setting.BASE_FREQUENCY.keepInRange(baseFrequency * factor);
+					System.out.println(charString + charString + ": base frequency changed to " + baseFrequency);
+				}
+				lastWord.setLength(0);
 				if (settingChangers.contains(charString)) {
 					changeSetting();
 				} else if (!Character.isWhitespace(ch)) {
@@ -297,6 +315,15 @@ public class TextSound {
 						double oldTempo = tempo;
 						tempo = setting.keepInRange(tempo * factor);
 						soundString.append("T" + (int) tempo + " ");
+						// The /2 is to stop an exactly 0 result
+						double tempoProportion = (tempo - Setting.TEMPO.min)
+								/ (Setting.TEMPO.max - Setting.TEMPO.min);
+						if (tempoProportion < 0.05) {
+							tempoProportion = 0.05;
+						} else if (tempoProportion > 0.95) {
+							tempoProportion = 0.95;
+						}
+						attackDecayDamper = attackDecayBase * (1 - tempoProportion);
 						break;
 					case LETTER_ORDERING:
 						ordering += 1;
@@ -340,6 +367,7 @@ public class TextSound {
 				}
 				soundString.append("+R/" + String.format("%f", theNoteGap) + " ");
 			}
+			lastChar = ch;
 		}
 		return soundString.toString();
 	}
@@ -365,15 +393,19 @@ public class TextSound {
 		switch (attackDecayAction) {
 		case 0:
 			attack += changeAmount;
+			decay += changeAmount;
 			break;
 		case 1:
 			attack -= changeAmount;
+			decay -= changeAmount;
 			break;
 		case 2:
-			decay += changeAmount;
+			attack += changeAmount;
+			decay -= changeAmount;
 			break;
 		case 3:
-			decay -= changeAmount;
+			attack -= changeAmount;
+			decay += changeAmount;
 			break;
 		}
 		if (attack > 127) {
